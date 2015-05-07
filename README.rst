@@ -19,14 +19,14 @@ Run a web container of your choice and set ``AUTOSCALE=1``::
 Now autodock-autoscale will monitor this container's load and automatically
 spawn new instances of this container based on the parameters used to start it.
 
-.. note:: This is best used in conjunction with
+.. note: This is best used in conjunction with
           `autodock-hipache <https://github.com/prologic/autodock-hipache`_
 
 
 Configuration
 -------------
 
-There are several options you can pass when running the autodock-autoscale plugin:
+There are several options you can pass when running containers for autoscaling:
 
 - ``AUTOSCALE_MIN=n`` The minimum number of instances to run at any given time.
 - ``AUTOSCALE_MAX=n`` The maximum number of instances to scale up to.
