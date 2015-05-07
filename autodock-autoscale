@@ -15,9 +15,11 @@ from __future__ import print_function
 import sys
 import logging
 from os import environ
+from multiprocessing import cpu_count
 
 
 from autodock.plugin import Plugin
+from circuits import handler, BaseComponent, Timer
 
 
 logging.basicConfig(
@@ -31,25 +33,95 @@ logger = logging.getLogger(__name__)
 
 
 def parse_args(parser):
-    parser.add_argument(
-        "-n", "--min", action="store", dest="min", metavar="N", type=int,
-        default=int(environ.get("AUTOSCALE_MIN", "1")),
-        help="Minimun number of instances to scale down to"
-    )
-
-    parser.add_argument(
-        "-N", "--max", action="store", dest="max", metavar="N", type=int,
-        default=int(environ.get("AUTOSCALE_MAX", str(cpu_count()))),
-        help="Maximum number of instances to scale up to"
-    )
-
     return parser
+
+
+class AutoScaler(BaseComponent):
+
+    def init(self, rpc):
+        self.rpc = rpc
+
+        self.ids = []
+
+    def add(self, id):
+        self.ids.append(id)
+
+    def delete(self, id):
+        self.ids.remove(id)
+
+    @handler("registered")
+    def _on_registered(self, component, manager):
+        if component is self:
+            logging.info("AutoScaler registered and ready!")
 
 
 class AutoScale(Plugin):
 
     def init(self, *args):
         super(AutoScale, self).init(*args)
+
+        self.autoscaler = AutoScaler(self.rpc).register(self)
+
+        map(self._add_container, self.rpc.docker("containers", True))
+
+    def _add_container(self, id):
+        autoscale = self._get_container_info(id)
+
+        if not autoscale:
+            return
+
+        logging.info("Container {} requested autoscaling".format(id[:10]))
+
+        self.autoscaler.add(id)
+
+    def _get_container_info(self, id):
+        info = self.rpc.docker("inspect_container", id)
+
+        env = dict([e.split("=") for e in info["Config"]["Env"]])
+
+        autoscale = int(env.get("AUTOSCALE", "0"))
+
+        return autoscale
+
+    def _remove_container(self, id):
+        autoscale = self._get_container_info(id)
+
+        logging.info("Container {} autoscaling removed".format(id[:10]))
+
+        self.autoscaler.delete(id)
+
+    def container_started(self, event, **data):
+        logging.info("Container {} started".format(data["id"][:10]))
+
+        self._add_container(data["id"])
+
+    def container_stopped(self, event, **data):
+        logging.info("Container {} stopped".format(data["id"][:10]))
+
+        self._remove_container(data["id"])
+
+    def container_killed(self, event, **data):
+        logging.info("Container {} killed".format(data["id"][:10]))
+
+        self._remove_container(data["id"])
+
+    def container_died(self, event, **data):
+        logging.info("Container {} died".format(data["id"][:10]))
+
+        self._remove_container(data["id"])
+
+    def container_paused(self, event, **data):
+        logging.info("Container {} paused".format(data["id"][:10]))
+
+        self._remove_container(data["id"])
+
+    def container_restarted(self, event, **data):
+        logging.info("Container {} restarted".format(data["id"][:10]))
+
+    def container_unpaused(self, event, **data):
+        logging.info("Container {} unpaused".format(data["id"][:10]))
+
+        self._add_container(data["id"])
 
 
 def main():
